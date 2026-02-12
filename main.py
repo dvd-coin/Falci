@@ -23,7 +23,6 @@ async def predict_fortune(
     language: str = Form("tr")
 ):
     try:
-        # Resimleri OpenAI'ın anlayacağı Base64 formatına çeviriyoruz
         image_messages = []
         for image in images:
             content = await image.read()
@@ -33,27 +32,32 @@ async def predict_fortune(
                 "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}
             })
 
-        # OpenAI Vision çağrısı
+        # Talimatı çok daha net ve zorunlu hale getirdik
         response = client.chat.completions.create(
-            model="gpt-4o-mini", # Vision desteği olan model
+            model="gpt-4o", # Modeli GPT-4o (Görsel uzmanı) olarak güncelledik
             messages=[
                 {
                     "role": "system", 
-                    "content": f"Sen mistik ve bilge bir Türk kahvesi falcısısın. Kullanıcının gönderdiği 3 adet fincan ve tabak görselini detaylıca incele. Gördüğün sembolleri (hayvanlar, eşyalar, yollar vb.) gerçek bir falcı gibi yorumla. Yanıtını sadece {language} dilinde ver."
+                    "content": (
+                        f"Sen profesyonel bir falcısın. Sana gönderilen resimler gerçek kahve fincanı fotoğraflarıdır. "
+                        f"ASLA 'ben yapay zekayım' veya 'genel yorum yapabilirim' deme. "
+                        f"Doğrudan resimlerde gördüğün şekilleri (örneğin: 'sağ tarafta bir at görüyorum', 'fincanın dibinde bir yol var') anlatarak başla. "
+                        f"Mistik, geleneksel ve gizemli bir dil kullan. Yanıtın sadece {language} dilinde olsun."
+                    )
                 },
                 {
                     "role": "user",
                     "content": [
-                        {"type": "text", "text": "Lütfen bu kahve falını benim için yorumlar mısın?"},
-                        *image_messages # Resimler buraya ekleniyor
+                        {"type": "text", "text": "Bu fincan benim, lütfen içindeki şekilleri yorumla ve geleceğimi söyle."},
+                        *image_messages 
                     ]
                 }
             ],
-            max_tokens=1000
+            max_tokens=1000,
+            temperature=0.7 # Biraz daha yaratıcı ve falcı gibi konuşması için
         )
         
         return {"fortune_text": response.choices[0].message.content, "status": "success"}
 
     except Exception as e:
-        print(f"Hata: {str(e)}")
         return {"fortune_text": f"Görsel analiz hatası: {str(e)}", "status": "error"}
