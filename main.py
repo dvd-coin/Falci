@@ -20,22 +20,21 @@ client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 @app.post("/predict-fortune")
 async def predict_fortune(
     images: List[UploadFile] = File(...), 
-    language: str = Form(...) # Base44'ten gelmesi zorunlu
+    language: str = Form(...) 
 ):
-    # 1. LOGLAMA: Base44'ün ne gönderdiğini Railway Loglarında göreceğiz
-    print(f"GELEN DİL İSTEĞİ: {language}")
+    # 1. LOGLAMA: Gelen dili kesin görelim
+    print(f"--- GELEN DİL İSTEĞİ: {language} ---")
 
-    # 2. DİLİ STANDARTLAŞTIRMA (Ne gelirse gelsin doğruya çevir)
-    lang_lower = language.lower()
-    if any(x in lang_lower for x in ['en', 'eng', 'ing', 'usa']):
+    # 2. DİL AYARI (Basit ve Sağlam)
+    # Eğer içinde 'en' veya 'Eng' geçiyorsa İngilizce yap, yoksa Türkçe kal.
+    if language and "en" in language.lower():
         selected_lang = "English"
-        voice_model = "shimmer" # İngilizceye daha uygun bir ton
+        system_lang_instruction = "Give the response ONLY in English."
     else:
         selected_lang = "Turkish"
-        voice_model = "onyx" # Türkçeye biraz daha tok giden ses (veya shimmer kalabilir)
+        system_lang_instruction = "Yanıtı SADECE Türkçe ver."
 
     try:
-        # Resimleri Hazırla
         image_messages = []
         for image in images:
             content = await image.read()
@@ -45,34 +44,30 @@ async def predict_fortune(
                 "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}
             })
 
-        # Karakter ve Dil Promptu (Kesinleştirilmiş)
-        system_prompt = (
-            f"Sen 'Firuze Abla' adında, hisleri kuvvetli bir falcısın. "
-            f"ŞU AN GEÇERLİ DİL: {selected_lang.upper()}. "
-            f"Yanıtını SADECE {selected_lang} dilinde ver. Başka dil kullanma.\n\n"
-            f"Eğer dil English ise: 'Oh my dear, let me look at your cup...' diye başla.\n"
-            f"Eğer dil Turkish ise: 'Ay canım, içim şişti fincana bakınca...' diye başla.\n\n"
-            "Falı mistik, samimi ve hikaye anlatır gibi yorumla. En az 200 kelime olsun."
-        )
-
-        # AI'ya Gönder
-        completion = client.chat.completions.create(
+        # 3. FALCI (Kısa ve Öz - Kotan gitmesin diye token kıstım)
+        response = client.chat.completions.create(
             model="gpt-4o",
             messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": [*image_messages, {"type": "text", "text": "Yorumla abla."}]}
+                {
+                    "role": "system", 
+                    "content": (
+                        f"Sen mistik bir falcısın. {system_lang_instruction} "
+                        "Falı 3 kısa paragraf halinde, gizemli bir tonla anlat."
+                    )
+                },
+                {"role": "user", "content": [*image_messages, {"type": "text", "text": "Falımı yorumla."}]}
             ],
-            temperature=0.8,
-            max_tokens=800
+            max_tokens=600 # Kotan için azalttım
         )
         
-        fortune_text = completion.choices[0].message.content
+        fortune_text = response.choices[0].message.content
         
-        # Sesi Üret
+        # 4. SES (KESİN MP3 FORMATI)
         audio_response = client.audio.speech.create(
             model="tts-1",
             voice="shimmer",
-            input=fortune_text
+            input=fortune_text,
+            response_format="mp3" # Formatı zorluyoruz
         )
         
         audio_base64 = base64.b64encode(audio_response.content).decode('utf-8')
@@ -80,10 +75,10 @@ async def predict_fortune(
         return {
             "fortune_text": fortune_text, 
             "audio_base64": audio_base64,
-            "status": "success",
-            "detected_lang": selected_lang # Base44'te debug için geri gönderiyoruz
+            "detected_language": selected_lang,
+            "status": "success"
         }
 
     except Exception as e:
-        print(f"Hata: {e}")
+        print(f"HATA: {e}")
         return {"fortune_text": f"Error: {str(e)}", "status": "error"}
