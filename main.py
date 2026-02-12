@@ -4,7 +4,6 @@ from fastapi import FastAPI, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from typing import List
 from openai import OpenAI
-import requests
 
 app = FastAPI()
 
@@ -18,31 +17,13 @@ app.add_middleware(
 
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-# Google TTS Fonksiyonu
-def get_google_tts_audio(text, lang_code):
-    api_key = os.getenv("GOOGLE_API_KEY")
-    url = f"https://texttospeech.googleapis.com/v1/text:synthesize?key={api_key}"
-    
-    # Dil kodunu Google'ın anlayacağı formata çevir
-    voice_lang = "tr-TR" if "Turk" in lang_code else "en-US"
-    
-    payload = {
-        "input": {"text": text},
-        "voice": {"languageCode": voice_lang, "ssmlGender": "FEMALE"},
-        "audioConfig": {"audioEncoding": "MP3"}
-    }
-    
-    response = requests.post(url, json=payload)
-    if response.status_code == 200:
-        return response.json()["audioContent"]
-    return None
-
 @app.post("/predict-fortune")
 async def predict_fortune(
     images: List[UploadFile] = File(...), 
-    language: str = Form("Turkish")
+    language: str = Form(...) # Varsayılanı kaldırdık, Base44 göndermek ZORUNDA
 ):
     try:
+        # 1. Resimleri Hazırla
         image_messages = []
         for image in images:
             content = await image.read()
@@ -52,33 +33,54 @@ async def predict_fortune(
                 "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}
             })
 
-        # Karakteristik ve Kesin Dil Talimatı
-        persona = (
-            f"Sen dünya çapında meşhur, ağzı dualı, sezgileri çok kuvvetli bir falcı ablalar ablasısın. "
-            f"ÖNEMLİ: Falı SADECE VE SADECE {language} dilinde anlatacaksın. Sakın başka dil kullanma! "
-            f"Anlatımın samimi, sıcak olsun. 'Canım benim, bak şuraya' gibi cümleler kur. "
-            f"Sanki karşında biri varmış gibi fala bak, analiz yapma, hayat hikayesi anlat."
+        # 2. Falcı Personası ve ÖRNEK FAL (Few-Shot Prompting)
+        system_prompt = (
+            f"Sen 'Firuze Abla' adında, hisleri çok kuvvetli, eski toprak bir falcısın. "
+            f"KULLANICI DİLİ: {language}. Yanıtını SADECE bu dilde ver. Eğer 'English' ise İngilizce, 'Turkish' ise Türkçe konuş.\n\n"
+            
+            "TARZIN:\n"
+            "- Asla 'fincanda şu var' deme. 'Ay içim daraldı', 'Yüreğin kabarmış', 'Bak bak şuraya bak' gibi girişler yap.\n"
+            "- Kısa kesme. En az 3 paragraf dolusu hikaye anlat.\n"
+            "- Aşk, para, kariyer ve sağlık konularına mutlaka değin.\n"
+            "- Gizemli ol ama umut ver.\n\n"
+            
+            "ÖRNEK FAL ANLATIMI (BUNUN GİBİ KONUŞ):\n"
+            "'Ay kuzum, senin yüreğin nasıl şişmiş böyle! Fincanı elime aldığım an bir ağırlık çöktü içime, sanki söylenmemiş sözler var boğazında düğümlenen. "
+            "Bak şurada, fincanın dibinde kocaman bir balık var, görüyor musun? Bu balık nasip demek, kısmet demek! Hanene öyle temiz bir para girecek ki, o sıkıntılarını bir anda silip atacak. "
+            "Ama tabağında sinsi bir göz var, sana hasetle bakan, yüzüne gülüp arkandan konuşan esmer bir kadın... Aman diyeyim, sırlarını herkese açma bu ara. "
+            "Yolun var, çok aydınlık bir yol. Üç vakte kadar bir haber alacaksın ve sevinçten eteklerin zil çalacak. Hadi bakalım, niyetin kabul olsun!'"
         )
 
-        response = client.chat.completions.create(
+        # 3. Falı Yorumlat (GPT-4o)
+        completion = client.chat.completions.create(
             model="gpt-4o",
             messages=[
-                {"role": "system", "content": persona},
-                {"role": "user", "content": [*image_messages, {"type": "text", "text": "Hadi abla, dökül bakalım."}]}
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": [*image_messages, {"type": "text", "text": "Hadi abla, yorumla bakalım ne görüyorsun?"}]}
             ],
-            temperature=0.9
+            temperature=0.9,
+            max_tokens=1000
         )
         
-        fortune_text = response.choices[0].message.content
+        fortune_text = completion.choices[0].message.content
         
-        # Sesi Railway'de üret
-        audio_content = get_google_tts_audio(fortune_text, language)
+        # 4. Sesi Üret (OpenAI TTS - Onyx veya Shimmer sesi)
+        # Dil İngilizce ise ses tonu biraz daha farklı olabilir ama Shimmer genelde kadın falcıya uyar.
+        audio_response = client.audio.speech.create(
+            model="tts-1",
+            voice="shimmer", # 'alloy', 'echo', 'fable', 'onyx', 'nova', 'shimmer'
+            input=fortune_text
+        )
+        
+        # Sesi Base64'e çevirip gönderiyoruz
+        audio_base64 = base64.b64encode(audio_response.content).decode('utf-8')
         
         return {
             "fortune_text": fortune_text, 
-            "audio_base64": audio_content, # Ses verisini buraya ekledik
+            "audio_base64": audio_base64,
             "status": "success"
         }
 
     except Exception as e:
-        return {"fortune_text": f"Gönül gözüm kapandı: {str(e)}", "status": "error"}
+        print(f"Hata: {e}")
+        return {"fortune_text": f"Enerji hattında kopukluk var kuzum: {str(e)}", "status": "error"}
