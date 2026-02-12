@@ -1,5 +1,4 @@
 fastapi
-python-multipart
 uvicorn
+python-multipart
 openai
-requests
