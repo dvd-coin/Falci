@@ -22,17 +22,17 @@ async def predict_fortune(
     images: List[UploadFile] = File(...), 
     language: str = Form(...) 
 ):
-    # 1. LOGLAMA: Gelen dili kesin görelim
-    print(f"--- GELEN DİL İSTEĞİ: {language} ---")
+    print(f"--- GELEN DİL: {language} ---")
 
-    # 2. DİL AYARI (Basit ve Sağlam)
-    # Eğer içinde 'en' veya 'Eng' geçiyorsa İngilizce yap, yoksa Türkçe kal.
+    # Dil Ayarı
     if language and "en" in language.lower():
-        selected_lang = "English"
-        system_lang_instruction = "Give the response ONLY in English."
+        lang_instruction = "English"
+        # İngilizce için dramatik giriş
+        intro = "Oh my dear... Let me look closer at this cup..."
     else:
-        selected_lang = "Turkish"
-        system_lang_instruction = "Yanıtı SADECE Türkçe ver."
+        lang_instruction = "Turkish"
+        # Türkçe için dramatik giriş
+        intro = "Ah canım benim... Gel bakayım şöyle yakına..."
 
     try:
         image_messages = []
@@ -44,41 +44,49 @@ async def predict_fortune(
                 "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}
             })
 
-        # 3. FALCI (Kısa ve Öz - Kotan gitmesin diye token kıstım)
+        # --- DUYGU VE TONLAMA İÇİN ÖZEL PROMPT ---
+        system_prompt = (
+            f"Sen mistik bir falcısın ama aynı zamanda bir tiyatrocusun. "
+            f"DİL: {lang_instruction}. "
+            f"KURALLAR:\n"
+            f"1. Asla dümdüz okuma. Metnin içine '...' (üç nokta) koyarak bol bol ES VER. Bu, seslendirmede nefes almanı sağlar.\n"
+            f"2. Duygu belirt! 'Hmm...', 'Ah!', 'Vay canına!' gibi ünlemler kullan.\n"
+            f"3. Cümlelerin kısa olsun. Uzun cümleleri böl.\n"
+            f"4. Robot gibi değil, sanki karşında en yakın arkadaşın varmış gibi fısıldayarak konuş.\n"
+            f"5. Falı 3 kısa paragraf yap ama çok etkileyici olsun."
+        )
+
+        # Chat GPT'ye isteği gönder
         response = client.chat.completions.create(
             model="gpt-4o",
             messages=[
-                {
-                    "role": "system", 
-                    "content": (
-                        f"Sen mistik bir falcısın. {system_lang_instruction} "
-                        "Falı 3 kısa paragraf halinde, gizemli bir tonla anlat."
-                    )
-                },
-                {"role": "user", "content": [*image_messages, {"type": "text", "text": "Falımı yorumla."}]}
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": [*image_messages, {"type": "text", "text": "Hadi yorumla."}]}
             ],
-            max_tokens=600 # Kotan için azalttım
+            max_tokens=600 
         )
         
-        fortune_text = response.choices[0].message.content
+        # Giriş cümlesini ekleyerek metni oluştur (Seslendirme için)
+        raw_text = response.choices[0].message.content
+        full_text = f"{intro} {raw_text}"
         
-        # 4. SES (KESİN MP3 FORMATI)
+        # SES ÜRETİMİ (TTS-1)
+        # 'Nova' sesi biraz daha enerjik ve doğaldır. 'Shimmer' daha buğuludur.
         audio_response = client.audio.speech.create(
             model="tts-1",
-            voice="shimmer",
-            input=fortune_text,
-            response_format="mp3" # Formatı zorluyoruz
+            voice="nova", 
+            input=full_text,
+            response_format="mp3"
         )
         
         audio_base64 = base64.b64encode(audio_response.content).decode('utf-8')
         
         return {
-            "fortune_text": fortune_text, 
+            "fortune_text": full_text, 
             "audio_base64": audio_base64,
-            "detected_language": selected_lang,
             "status": "success"
         }
 
     except Exception as e:
         print(f"HATA: {e}")
-        return {"fortune_text": f"Error: {str(e)}", "status": "error"}
+        return {"fortune_text": "Error", "status": "error"}
