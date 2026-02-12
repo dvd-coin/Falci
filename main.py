@@ -1,4 +1,5 @@
 import os
+import base64
 from fastapi import FastAPI, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from typing import List
@@ -6,7 +7,6 @@ from openai import OpenAI
 
 app = FastAPI()
 
-# CORS Ayarları - Base44 bağlantısı için hayati önemde
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -15,45 +15,45 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# OpenAI İstemcisi
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-
-@app.get("/")
-def home():
-    return {"status": "online", "project": "Turkish Coffee Fortune"}
 
 @app.post("/predict-fortune")
 async def predict_fortune(
     images: List[UploadFile] = File(...), 
-    language: str = Form("en")
+    language: str = Form("tr")
 ):
     try:
-        # GPT-4o-mini kullanarak analiz yapıyoruz
+        # Resimleri OpenAI'ın anlayacağı Base64 formatına çeviriyoruz
+        image_messages = []
+        for image in images:
+            content = await image.read()
+            base64_image = base64.b64encode(content).decode('utf-8')
+            image_messages.append({
+                "type": "image_url",
+                "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}
+            })
+
+        # OpenAI Vision çağrısı
         response = client.chat.completions.create(
-            model="gpt-4o-mini",
+            model="gpt-4o-mini", # Vision desteği olan model
             messages=[
                 {
                     "role": "system", 
-                    "content": f"You are a professional Turkish coffee fortune teller. Provide a mystical and detailed reading in {language} language."
+                    "content": f"Sen mistik ve bilge bir Türk kahvesi falcısısın. Kullanıcının gönderdiği 3 adet fincan ve tabak görselini detaylıca incele. Gördüğün sembolleri (hayvanlar, eşyalar, yollar vb.) gerçek bir falcı gibi yorumla. Yanıtını sadece {language} dilinde ver."
                 },
                 {
-                    "role": "user", 
-                    "content": "Interpret the coffee grounds in these images."
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "Lütfen bu kahve falını benim için yorumlar mısın?"},
+                        *image_messages # Resimler buraya ekleniyor
+                    ]
                 }
             ],
             max_tokens=1000
         )
         
-        # Base44'ün beklediği anahtar: fortune_text
-        result = response.choices[0].message.content
-        return {
-            "fortune_text": result,
-            "status": "success"
-        }
+        return {"fortune_text": response.choices[0].message.content, "status": "success"}
 
     except Exception as e:
         print(f"Hata: {str(e)}")
-        return {
-            "fortune_text": f"Bir hata oluştu: {str(e)}",
-            "status": "error"
-        }
+        return {"fortune_text": f"Görsel analiz hatası: {str(e)}", "status": "error"}
