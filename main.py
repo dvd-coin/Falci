@@ -20,7 +20,7 @@ client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 @app.post("/predict-fortune")
 async def predict_fortune(
     images: List[UploadFile] = File(...), 
-    language: str = Form("tr")
+    language: str = Form("Turkish") # Varsayılan dili belirledik
 ):
     try:
         image_messages = []
@@ -32,32 +32,32 @@ async def predict_fortune(
                 "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}
             })
 
-        # Talimatı çok daha net ve zorunlu hale getirdik
+        # Samimi ve Doğal Falcı Karakteri
+        persona_prompt = (
+            f"Sen çok deneyimli, gizemli ve bir o kadar da samimi bir Türk kahvesi falcısısın. "
+            f"Resimlere bakarken 'İlk fincan, ikinci tabağın üstü' gibi teknik terimler kullanma. "
+            f"Onun yerine 'Aman yarabbim, şuraya bak...', 'Gönlün biraz daralmış sanki...', 'Bak şurada bir kısmetin var' gibi gerçekçi bir dil kullan. "
+            f"Falın gidişatı akıcı olsun, formaliteden uzak dur. Şekilleri hayatın içinden hikayelerle bağla. "
+            f"ÖNEMLİ: Falı mutlaka ve sadece {language} dilinde anlat. Eğer dil English seçildiyse mutlaka İngilizce konuş."
+        )
+
         response = client.chat.completions.create(
-            model="gpt-4o", # Modeli GPT-4o (Görsel uzmanı) olarak güncelledik
+            model="gpt-4o",
             messages=[
-                {
-                    "role": "system", 
-                    "content": (
-                        f"Sen profesyonel bir falcısın. Sana gönderilen resimler gerçek kahve fincanı fotoğraflarıdır. "
-                        f"ASLA 'ben yapay zekayım' veya 'genel yorum yapabilirim' deme. "
-                        f"Doğrudan resimlerde gördüğün şekilleri (örneğin: 'sağ tarafta bir at görüyorum', 'fincanın dibinde bir yol var') anlatarak başla. "
-                        f"Mistik, geleneksel ve gizemli bir dil kullan. Yanıtın sadece {language} dilinde olsun."
-                    )
-                },
+                {"role": "system", "content": persona_prompt},
                 {
                     "role": "user",
                     "content": [
-                        {"type": "text", "text": "Bu fincan benim, lütfen içindeki şekilleri yorumla ve geleceğimi söyle."},
+                        {"type": "text", "text": "Canım falcı, bak bakalım fincanımda neler var?"},
                         *image_messages 
                     ]
                 }
             ],
             max_tokens=1000,
-            temperature=0.7 # Biraz daha yaratıcı ve falcı gibi konuşması için
+            temperature=0.85 # Daha doğal ve öngörülemez konuşması için artırdık
         )
         
         return {"fortune_text": response.choices[0].message.content, "status": "success"}
 
     except Exception as e:
-        return {"fortune_text": f"Görsel analiz hatası: {str(e)}", "status": "error"}
+        return {"fortune_text": f"Hata oluştu canım: {str(e)}", "status": "error"}
