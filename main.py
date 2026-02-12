@@ -1,12 +1,12 @@
 import os
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException
+from fastapi import FastAPI, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from typing import List
 from openai import OpenAI
 
 app = FastAPI()
 
-# CORS Ayarları
+# CORS Ayarları - Base44 bağlantısı için hayati önemde
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -15,39 +15,45 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# OpenAI İstemcisi (API Key'i Railway Variables'dan çeker)
+# OpenAI İstemcisi
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 @app.get("/")
-def read_root():
-    return {"status": "online", "message": "Turkish Coffee Fortune API is ready!"}
+def home():
+    return {"status": "online", "project": "Turkish Coffee Fortune"}
 
 @app.post("/predict-fortune")
 async def predict_fortune(
     images: List[UploadFile] = File(...), 
-    language: str = Form("tr")
+    language: str = Form("en")
 ):
     try:
-        # OpenAI Çağrısı
+        # GPT-4o-mini kullanarak analiz yapıyoruz
         response = client.chat.completions.create(
-            model="gpt-4o-mini", # Hem hızlı hem ucuz
+            model="gpt-4o-mini",
             messages=[
                 {
                     "role": "system", 
-                    "content": f"You are a mystical Turkish coffee fortune teller. Give a detailed, soulful, and traditional fortune reading in {language} language."
+                    "content": f"You are a professional Turkish coffee fortune teller. Provide a mystical and detailed reading in {language} language."
                 },
                 {
                     "role": "user", 
-                    "content": "Interpret these coffee grounds images for my future."
+                    "content": "Interpret the coffee grounds in these images."
                 }
             ],
-            max_tokens=500
+            max_tokens=1000
         )
         
-        fortune_text = response.choices[0].message.content
-        return {"fortune_text": fortune_text, "status": "success"}
+        # Base44'ün beklediği anahtar: fortune_text
+        result = response.choices[0].message.content
+        return {
+            "fortune_text": result,
+            "status": "success"
+        }
 
     except Exception as e:
-        # Hata durumunda Base44'e ne olduğunu söyleyelim
-        print(f"Hata oluştu: {str(e)}")
-        return {"fortune_text": f"Bir hata oluştu: {str(e)}", "status": "error"}
+        print(f"Hata: {str(e)}")
+        return {
+            "fortune_text": f"Bir hata oluştu: {str(e)}",
+            "status": "error"
+        }
