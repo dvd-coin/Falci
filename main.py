@@ -20,10 +20,22 @@ client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 @app.post("/predict-fortune")
 async def predict_fortune(
     images: List[UploadFile] = File(...), 
-    language: str = Form(...) # Varsayılanı kaldırdık, Base44 göndermek ZORUNDA
+    language: str = Form(...) # Base44'ten gelmesi zorunlu
 ):
+    # 1. LOGLAMA: Base44'ün ne gönderdiğini Railway Loglarında göreceğiz
+    print(f"GELEN DİL İSTEĞİ: {language}")
+
+    # 2. DİLİ STANDARTLAŞTIRMA (Ne gelirse gelsin doğruya çevir)
+    lang_lower = language.lower()
+    if any(x in lang_lower for x in ['en', 'eng', 'ing', 'usa']):
+        selected_lang = "English"
+        voice_model = "shimmer" # İngilizceye daha uygun bir ton
+    else:
+        selected_lang = "Turkish"
+        voice_model = "onyx" # Türkçeye biraz daha tok giden ses (veya shimmer kalabilir)
+
     try:
-        # 1. Resimleri Hazırla
+        # Resimleri Hazırla
         image_messages = []
         for image in images:
             content = await image.read()
@@ -33,54 +45,45 @@ async def predict_fortune(
                 "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}
             })
 
-        # 2. Falcı Personası ve ÖRNEK FAL (Few-Shot Prompting)
+        # Karakter ve Dil Promptu (Kesinleştirilmiş)
         system_prompt = (
-            f"Sen 'Firuze Abla' adında, hisleri çok kuvvetli, eski toprak bir falcısın. "
-            f"KULLANICI DİLİ: {language}. Yanıtını SADECE bu dilde ver. Eğer 'English' ise İngilizce, 'Turkish' ise Türkçe konuş.\n\n"
-            
-            "TARZIN:\n"
-            "- Asla 'fincanda şu var' deme. 'Ay içim daraldı', 'Yüreğin kabarmış', 'Bak bak şuraya bak' gibi girişler yap.\n"
-            "- Kısa kesme. En az 3 paragraf dolusu hikaye anlat.\n"
-            "- Aşk, para, kariyer ve sağlık konularına mutlaka değin.\n"
-            "- Gizemli ol ama umut ver.\n\n"
-            
-            "ÖRNEK FAL ANLATIMI (BUNUN GİBİ KONUŞ):\n"
-            "'Ay kuzum, senin yüreğin nasıl şişmiş böyle! Fincanı elime aldığım an bir ağırlık çöktü içime, sanki söylenmemiş sözler var boğazında düğümlenen. "
-            "Bak şurada, fincanın dibinde kocaman bir balık var, görüyor musun? Bu balık nasip demek, kısmet demek! Hanene öyle temiz bir para girecek ki, o sıkıntılarını bir anda silip atacak. "
-            "Ama tabağında sinsi bir göz var, sana hasetle bakan, yüzüne gülüp arkandan konuşan esmer bir kadın... Aman diyeyim, sırlarını herkese açma bu ara. "
-            "Yolun var, çok aydınlık bir yol. Üç vakte kadar bir haber alacaksın ve sevinçten eteklerin zil çalacak. Hadi bakalım, niyetin kabul olsun!'"
+            f"Sen 'Firuze Abla' adında, hisleri kuvvetli bir falcısın. "
+            f"ŞU AN GEÇERLİ DİL: {selected_lang.upper()}. "
+            f"Yanıtını SADECE {selected_lang} dilinde ver. Başka dil kullanma.\n\n"
+            f"Eğer dil English ise: 'Oh my dear, let me look at your cup...' diye başla.\n"
+            f"Eğer dil Turkish ise: 'Ay canım, içim şişti fincana bakınca...' diye başla.\n\n"
+            "Falı mistik, samimi ve hikaye anlatır gibi yorumla. En az 200 kelime olsun."
         )
 
-        # 3. Falı Yorumlat (GPT-4o)
+        # AI'ya Gönder
         completion = client.chat.completions.create(
             model="gpt-4o",
             messages=[
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": [*image_messages, {"type": "text", "text": "Hadi abla, yorumla bakalım ne görüyorsun?"}]}
+                {"role": "user", "content": [*image_messages, {"type": "text", "text": "Yorumla abla."}]}
             ],
-            temperature=0.9,
-            max_tokens=1000
+            temperature=0.8,
+            max_tokens=800
         )
         
         fortune_text = completion.choices[0].message.content
         
-        # 4. Sesi Üret (OpenAI TTS - Onyx veya Shimmer sesi)
-        # Dil İngilizce ise ses tonu biraz daha farklı olabilir ama Shimmer genelde kadın falcıya uyar.
+        # Sesi Üret
         audio_response = client.audio.speech.create(
             model="tts-1",
-            voice="shimmer", # 'alloy', 'echo', 'fable', 'onyx', 'nova', 'shimmer'
+            voice="shimmer",
             input=fortune_text
         )
         
-        # Sesi Base64'e çevirip gönderiyoruz
         audio_base64 = base64.b64encode(audio_response.content).decode('utf-8')
         
         return {
             "fortune_text": fortune_text, 
             "audio_base64": audio_base64,
-            "status": "success"
+            "status": "success",
+            "detected_lang": selected_lang # Base44'te debug için geri gönderiyoruz
         }
 
     except Exception as e:
         print(f"Hata: {e}")
-        return {"fortune_text": f"Enerji hattında kopukluk var kuzum: {str(e)}", "status": "error"}
+        return {"fortune_text": f"Error: {str(e)}", "status": "error"}
